@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EcoRoute · Operasyon Merkezi</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f3f4f1;
+    --surface: #fcfcfb;
+    --border: #e4e3de;
+    --text: #0b0b0b;
+    --text-2: #52514e;
+    --muted: #8a8984;
+    --side: #10231c;
+    --side-2: #1a3329;
+    --accent: #1baf7a;
+    --accent-ink: #0d7a54;
+    /* kategorik araç renkleri (sabit sıra) */
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4;
+    /* durum renkleri */
+    --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text); font-size: 14px;
+    display: grid; grid-template-columns: 232px 1fr; min-height: 100vh;
+  }
+  /* ---------- sidebar ---------- */
+  aside {
+    background: var(--side); color: #dfe9e4; padding: 22px 16px; display: flex; flex-direction: column; gap: 6px;
+    position: sticky; top: 0; height: 100vh;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; color: #fff; margin: 0 6px 22px; }
+  .brand .logo { width: 34px; height: 34px; border-radius: 10px; background: var(--accent); display: grid; place-items: center; }
+  .brand small { display: block; font-weight: 500; font-size: 11px; color: #8fb3a3; letter-spacing: .04em; }
+  aside a {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px;
+    color: #b9cec4; text-decoration: none; font-weight: 500;
+  }
+  aside a:hover { background: var(--side-2); color: #fff; }
+  aside a.active { background: var(--side-2); color: #fff; box-shadow: inset 3px 0 0 var(--accent); }
+  aside svg { width: 18px; height: 18px; flex: none; }
+  .side-foot { margin-top: auto; background: var(--side-2); border-radius: 12px; padding: 14px; font-size: 12px; color: #a9c2b6; line-height: 1.5; }
+  .side-foot b { color: #fff; display: block; font-size: 13px; margin-bottom: 2px; }
+
+  /* ---------- main ---------- */
+  main { padding: 22px 26px 40px; min-width: 0; }
+  header.top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+  header.top h1 { font-size: 22px; margin: 0; letter-spacing: -.01em; }
+  header.top .sub { color: var(--text-2); font-size: 13px; margin-top: 2px; }
+  .controls { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .thr { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 7px 12px; }
+  .thr label { color: var(--text-2); font-size: 12px; }
+  .thr output { font-weight: 700; min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+  .thr input { accent-color: var(--accent); width: 110px; }
+  button {
+    font: inherit; border-radius: 10px; border: 1px solid var(--border); background: var(--surface);
+    padding: 8px 14px; cursor: pointer; font-weight: 600; color: var(--text);
+  }
+  button:hover { border-color: #c9c8c1; }
+  button.primary { background: var(--accent-ink); border-color: var(--accent-ink); color: #fff; }
+  button.primary:hover { background: #0a6646; }
+  button.toggle[aria-pressed="true"] { background: #e3f4ec; border-color: var(--accent); color: var(--accent-ink); }
+  button:disabled { opacity: .55; cursor: progress; }
+  .dot-live { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 6px; vertical-align: 1px; }
+  button.toggle[aria-pressed="true"] .dot-live { background: var(--good); animation: pulse 1.4s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  .banner { display: none; background: #fdecec; border: 1px solid #f2c2c2; color: #8a1f1f; border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; }
+  .banner.show { display: block; }
+  .banner code { background: #fff; padding: 1px 5px; border-radius: 4px; }
+
+  /* ---------- KPI ---------- */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; position: relative; }
+  .kpi .label { color: var(--text-2); font-size: 12px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+  .kpi .value { font-size: 26px; font-weight: 700; margin-top: 6px; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .kpi .value small { font-size: 13px; font-weight: 600; color: var(--text-2); margin-left: 3px; }
+  .kpi .foot { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .kpi .ico { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; background: #eef0ec; color: var(--text-2); }
+  .kpi.alert .ico { background: #fbe7e7; color: var(--critical); }
+  .kpi.save .ico { background: #e3f4ec; color: var(--accent-ink); }
+  .kpi .ico svg { width: 15px; height: 15px; }
+
+  /* ---------- grid ---------- */
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; min-width: 0; }
+  .card h2 { font-size: 15px; margin: 0; }
+  .card .hd { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .card .hd .meta { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+  #map { height: 520px; border-radius: 10px; border: 1px solid var(--border); z-index: 0; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; color: var(--text-2); font-size: 12px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  .legend i.sq { border-radius: 3px; }
+
+  /* araç takibi */
+  .veh { border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: grid; gap: 8px; }
+  .veh + .veh { margin-top: 10px; }
+  .veh .row { display: flex; align-items: center; gap: 8px; }
+  .veh .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .veh .code { font-weight: 700; }
+  .veh .drv { color: var(--text-2); font-size: 12px; }
+  .pill { margin-left: auto; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 99px; display: inline-flex; gap: 5px; align-items: center; }
+  .pill.planned { background: #f6efdc; color: #7a5a00; }
+  .pill.in_progress { background: #e4eefb; color: #1c5cab; }
+  .pill.delayed { background: #fbe7e7; color: #a32020; }
+  .pill.completed { background: #e3f4ec; color: #0d6b0d; }
+  .pill.idle { background: #eef0ec; color: var(--text-2); }
+  .pill.maintenance { background: #fdeee6; color: #9a4419; }
+  .bar { height: 6px; background: #eceae4; border-radius: 99px; overflow: hidden; }
+  .bar > div { height: 100%; border-radius: 99px; transition: width .6s; }
+  .veh .facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; font-size: 12px; color: var(--text-2); }
+  .veh .facts b { display: block; color: var(--text); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .vlist { max-height: 340px; overflow: auto; padding-right: 2px; }
+
+  /* insights */
+  .ins { border-radius: 12px; padding: 12px; border: 1px solid var(--border); display: grid; gap: 6px; }
+  .ins + .ins { margin-top: 10px; }
+  .ins .t { font-weight: 700; display: flex; align-items: center; gap: 7px; }
+  .ins .d { color: var(--text-2); font-size: 13px; line-height: 1.45; }
+  .ins.critical { border-color: #f0c4c4; background: #fdf5f5; }
+  .ins.warning { border-color: #f3dfb0; background: #fefaf0; }
+  .ins button { justify-self: start; padding: 6px 12px; font-size: 13px; }
+  .sev { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 11px; font-weight: 800; flex: none; }
+  .sev.critical { background: var(--critical); } .sev.warning { background: #c98500; } .sev.info { background: var(--s1); }
+  .ai-tag { font-size: 10px; font-weight: 700; letter-spacing: .06em; background: #e3f4ec; color: var(--accent-ink); padding: 3px 7px; border-radius: 6px; }
+
+  /* özet */
+  .opt-sum { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .opt-sum div { background: #f6f6f3; border-radius: 10px; padding: 10px 12px; }
+  .opt-sum span { display: block; color: var(--text-2); font-size: 12px; }
+  .opt-sum b { font-size: 18px; font-variant-numeric: tabular-nums; }
+  .compare { margin-top: 12px; display: grid; gap: 8px; font-size: 12px; color: var(--text-2); }
+  .compare .bar { height: 10px; }
+  .empty { color: var(--muted); font-size: 13px; padding: 12px 0; }
+  .chart-box { position: relative; height: 230px; }
+
+  /* harita ikonları */
+  .veh-icon { background: var(--text); color: #fff; font-size: 11px; font-weight: 700; padding: 3px 7px; border-radius: 7px;
+    border: 2px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.3); white-space: nowrap; transform: translate(-50%, -50%); display: inline-block; }
+  .depot-icon { width: 30px; height: 30px; border-radius: 9px; background: var(--side); border: 2px solid #fff; display: grid; place-items: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,.35); color: #fff; font-size: 13px; font-weight: 800; transform: translate(-50%, -50%); }
+  .toast { position: fixed; right: 22px; bottom: 22px; background: var(--side); color: #fff; padding: 12px 16px; border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.2); opacity: 0; transform: translateY(8px); transition: .25s; max-width: 380px; z-index: 1000; }
+  .toast.show { opacity: 1; transform: none; }
+
+  @media (max-width: 1200px) { .grid { grid-template-columns: 1fr; } .grid2 { grid-template-columns: 1fr; } }
+  @media (max-width: 860px) { body { grid-template-columns: 1fr; } aside { display: none; } }
+</style>
+</head>
+<body>
+<aside>
+  <div class="brand">
+    <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" width="18" height="18"><path d="M4 18c6 0 10-4 10-10V4h-4C5 4 4 9 4 12v6Zm0 0 8-8"/></svg></div>
+    <div>EcoRoute<small>AKILLI ATIK YÖNETİMİ</small></div>
+  </div>
+  <a class="active" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Kontrol Paneli</a>
+  <a href="#map-card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Zm0 0v14m6-12v14"/></svg>Canlı Harita</a>
+  <a href="#veh-card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>Araç Takibi</a>
+  <a href="#analytics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10m6 10V4m6 16v-7m4 7H2"/></svg>Analitik</a>
+  <a href="/docs" target="_blank"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 8 3 12l4 4m10-8 4 4-4 4M14 4l-4 16"/></svg>API (Swagger)</a>
+  <div class="side-foot"><b>Kadıköy Pilot Bölgesi</b>Eşik üstü konteynerler için dinamik rota · En Yakın Komşu + 2-opt</div>
+</aside>
+
+<main>
+  <header class="top">
+    <div>
+      <h1>Operasyon Merkezi</h1>
+      <div class="sub" id="subtitle">Canlı saha durumu yükleniyor…</div>
+    </div>
+    <div class="controls">
+      <div class="thr">
+        <label for="thr">Doluluk eşiği</label>
+        <input id="thr" type="range" min="50" max="100" step="5" value="80">
+        <output id="thrOut">%80</output>
+      </div>
+      <button id="btnSim" class="toggle" aria-pressed="false"><span class="dot-live"></span>Canlı simülasyon</button>
+      <button id="btnReset" title="Örnek veriyi baştan yükle">Sıfırla</button>
+      <button id="btnOpt" class="primary">Rotaları Optimize Et</button>
+    </div>
+  </header>
+
+  <div class="banner" id="banner"></div>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="grid">
+    <div class="card" id="map-card">
+      <div class="hd"><h2>Rota Genel Görünümü</h2><span class="meta" id="mapMeta"></span></div>
+      <div id="map"></div>
+      <div class="legend">
+        <span><i class="sq" style="background:var(--side)"></i>Depo</span>
+        <span><i style="background:var(--good)"></i>Tamamlanan</span>
+        <span><i style="background:var(--s1)"></i>Sıradaki durak</span>
+        <span><i style="background:var(--critical)"></i>Geciken</span>
+        <span><i style="background:var(--warning)"></i>Bekleyen (rotada)</span>
+        <span><i style="background:#fff;border:2.5px solid var(--critical)"></i>Eşik üstü, rotasız</span>
+        <span><i style="background:#c9c8c1"></i>Eşik altı</span>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="card" id="veh-card">
+        <div class="hd"><h2>Canlı Araç Takibi</h2><span class="meta" id="vehMeta"></span></div>
+        <div class="vlist" id="vehicles"></div>
+      </div>
+      <div class="card">
+        <div class="hd"><h2>Sıradaki En İyi Aksiyon</h2><span class="ai-tag">AI ÖNERİ</span></div>
+        <div id="insights"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid2" id="analytics">
+    <div class="card">
+      <div class="hd"><h2>Haftalık rota mesafesi (km)</h2><span class="meta">Statik çizelge ve optimize rota</span></div>
+      <div class="chart-box"><canvas id="trendChart" aria-label="Son 7 günlük statik ve optimize rota mesafesi"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="hd"><h2>Bölge bazlı ort. doluluk (%)</h2></div>
+      <div class="chart-box"><canvas id="zoneChart" aria-label="Bölgelere göre ortalama doluluk"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="hd"><h2>Son optimizasyon</h2><span class="meta" id="optMeta">—</span></div>
+      <div id="optSummary"><div class="empty">Henüz bu oturumda optimizasyon çalıştırılmadı. “Rotaları Optimize Et” ile başlayın.</div></div>
+    </div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = location.protocol.startsWith("http") ? "" : "http://127.0.0.1:8000";
+const SERIES = ["--s1", "--s2", "--s3", "--s4", "--s5"].map(v => getComputedStyle(document.documentElement).getPropertyValue(v).trim());
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const fmt = (n, d = 1) => Number(n).toLocaleString("tr-TR", { minimumFractionDigits: d, maximumFractionDigits: d });
+const STATUS_TR = { planned: "Planlandı", in_progress: "Yolda", delayed: "Gecikmede", completed: "Tamamlandı", idle: "Boşta", maintenance: "Bakımda", on_route: "Rotada" };
+
+let threshold = 80, simTimer = null, busy = false;
+let depot = null, vehicleColor = {}, vehicleMarkers = {};
+const layers = {};
+
+// ------------------------------------------------------------------ API
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, { headers: { "Content-Type": "application/json" }, ...opts });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail ? (typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail)) : res.statusText);
+  return body;
+}
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 3200);
+}
+function banner(msg) {
+  const b = document.getElementById("banner");
+  b.innerHTML = msg || ""; b.classList.toggle("show", !!msg);
+}
+
+// ------------------------------------------------------------------ harita
+const map = L.map("map", { zoomControl: true }).setView([40.99, 29.044], 14);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19, attribution: '&copy; OpenStreetMap katkıcıları &copy; CARTO'
+}).addTo(map);
+layers.routes = L.layerGroup().addTo(map);
+layers.bins = L.layerGroup().addTo(map);
+layers.vehicles = L.layerGroup().addTo(map);
+
+function colorFor(vehicles) {
+  vehicles.forEach((v, i) => vehicleColor[v.id] = SERIES[i % SERIES.length]);
+}
+
+function drawDepot() {
+  if (!depot || layers.depot) return;
+  layers.depot = L.marker([depot.lat, depot.lng], {
+    icon: L.divIcon({ className: "", html: '<div class="depot-icon">D</div>', iconSize: [0, 0] }), zIndexOffset: 1000
+  }).bindTooltip(depot.name).addTo(map);
+}
+
+function drawMap(bins, routes, vehicles) {
+  layers.routes.clearLayers();
+  layers.bins.clearLayers();
+  const stopState = {};
+  routes.forEach(r => {
+    const color = vehicleColor[r.vehicle_id];
+    if (r.path.length) {
+      L.polyline(r.path, { color: "#fff", weight: 7, opacity: .9 }).addTo(layers.routes);
+      L.polyline(r.path, { color, weight: 3.5, opacity: .95, dashArray: r.status === "planned" ? "8 6" : null })
+        .bindTooltip(`${r.vehicle_code} · ${fmt(r.total_distance_km)} km · ${r.stops.length} durak`).addTo(layers.routes);
+    }
+    const nextIdx = r.stops.findIndex(s => !s.is_collected);
+    r.stops.forEach((s, i) => {
+      let st = s.is_collected ? "done" : r.status === "delayed" ? "delayed" : (i === nextIdx && r.status === "in_progress") ? "next" : "pending";
+      stopState[s.bin_id] = { st, order: s.stop_order, route: r, color };
+    });
+  });
+  const fills = { done: css("--good"), next: css("--s1"), delayed: css("--critical"), pending: css("--warning") };
+  bins.forEach(b => {
+    const s = stopState[b.id];
+    let opts;
+    if (s) opts = { radius: 8, color: "#fff", weight: 2, fillColor: fills[s.st], fillOpacity: 1 };
+    else if (b.needs_collection) opts = { radius: 7, color: css("--critical"), weight: 2.5, fillColor: "#fff", fillOpacity: 1 };
+    else opts = { radius: 5, color: "#fff", weight: 1.5, fillColor: "#c9c8c1", fillOpacity: 1 };
+    const m = L.circleMarker([b.latitude, b.longitude], opts).addTo(layers.bins);
+    const stateTxt = s ? `${s.route.vehicle_code} · durak ${s.order} · ${{ done: "toplandı", next: "sıradaki", delayed: "gecikmede", pending: "bekliyor" }[s.st]}` :
+      b.needs_collection ? "Eşik üstü · rotaya atanmadı" : "Eşik altı";
+    m.bindPopup(`<b>${b.code}</b> · ${b.zone_name}<br>Doluluk: <b>%${fmt(b.fill_rate)}</b> · ${b.capacity_liters} L` +
+      (b.is_critical ? `<br><span style="color:${css("--critical")}">⚠ ${b.alarm_note || "Kritik alarm"}</span>` : "") +
+      `<br><span style="color:${css("--text-2")}">${stateTxt}</span>`);
+  });
+  drawVehicles(vehicles, routes);
+  document.getElementById("mapMeta").textContent =
+    `${routes.length} aktif rota · ${bins.filter(b => b.needs_collection).length} acil konteyner`;
+}
+
+function drawVehicles(vehicles, routes) {
+  const onRoute = new Set(routes.map(r => r.vehicle_id));
+  vehicles.forEach(v => {
+    const pos = [v.current_lat, v.current_lng];
+    const show = onRoute.has(v.id);
+    let mk = vehicleMarkers[v.id];
+    if (!show) { if (mk) { layers.vehicles.removeLayer(mk); delete vehicleMarkers[v.id]; } return; }
+    const html = `<div class="veh-icon" style="background:${vehicleColor[v.id]}">${v.code}</div>`;
+    if (!mk) {
+      mk = L.marker(pos, { icon: L.divIcon({ className: "", html, iconSize: [0, 0] }), zIndexOffset: 2000 }).addTo(layers.vehicles);
+      vehicleMarkers[v.id] = mk;
+    } else animateTo(mk, pos);
+    mk.bindTooltip(`${v.code} · ${v.driver_name}`);
+  });
+}
+function animateTo(marker, to, ms = 1200) {
+  const from = marker.getLatLng();
+  if (from.lat === to[0] && from.lng === to[1]) return;
+  const t0 = performance.now();
+  const step = now => {
+    const k = Math.min(1, (now - t0) / ms), e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    marker.setLatLng([from.lat + (to[0] - from.lat) * e, from.lng + (to[1] - from.lng) * e]);
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+// ------------------------------------------------------------------ KPI
+const ICONS = {
+  bin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
+  alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20L12 3Zm0 6v5m0 3v.5"/></svg>',
+  truck: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>',
+  route: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5"/></svg>',
+  km: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
+  fuel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M14 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V8l-3-3"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4.5 4.5L19 7"/></svg>',
+  leaf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 19c8 0 14-5 14-14-9 0-14 6-14 14Zm0 0 7-7"/></svg>',
+};
+function kpiCard(label, value, unit, foot, icon, cls = "") {
+  return `<div class="kpi ${cls}"><div class="label"><span class="ico">${ICONS[icon]}</span>${label}</div>
+    <div class="value">${value}${unit ? `<small>${unit}</small>` : ""}</div><div class="foot">${foot}</div></div>`;
+}
+function renderKpis(k) {
+  document.getElementById("kpis").innerHTML = [
+    kpiCard("Toplam konteyner", k.total_bins, "", `Ort. doluluk %${fmt(k.avg_fill_rate)}`, "bin"),
+    kpiCard(`Acil (≥%${threshold})`, k.critical_bins, "", "Eşik üstü + alarm", "alert", "alert"),
+    kpiCard("Aktif araç", k.active_vehicles, `/ ${k.active_vehicles + k.idle_vehicles + k.maintenance_vehicles}`, `${k.idle_vehicles} boşta · ${k.maintenance_vehicles} bakımda`, "truck"),
+    kpiCard("Optimize rota", k.optimized_routes_today, "", "Bugün", "route"),
+    kpiCard("Tasarruf edilen mesafe", fmt(k.distance_saved_today_km), "km", "Statik çizelgeye göre, bugün", "km", "save"),
+    kpiCard("Yakıt tasarrufu", fmt(k.fuel_saved_today_l), "L", "Bugün", "fuel", "save"),
+    kpiCard("Tamamlanan toplama", k.collections_completed_today, `/ ${k.collections_planned_today}`, "Bugün planlanan duraklar", "check"),
+    kpiCard("CO₂ azaltımı", fmt(k.co2_reduced_today_kg), "kg", "2,68 kg/L motorin", "leaf", "save"),
+  ].join("");
+}
+
+// ------------------------------------------------------------------ araç listesi
+function renderVehicles(vehicles, routes) {
+  const byVeh = Object.fromEntries(routes.map(r => [r.vehicle_id, r]));
+  document.getElementById("vehMeta").textContent = `${routes.length} rotada / ${vehicles.length} araç`;
+  document.getElementById("vehicles").innerHTML = vehicles.map(v => {
+    const r = byVeh[v.id], color = vehicleColor[v.id];
+    if (!r) return `<div class="veh"><div class="row"><span class="sw" style="background:${color}"></span><span class="code">${v.code}</span>
+      <span class="drv">${v.driver_name}</span><span class="pill ${v.status}">${STATUS_TR[v.status]}</span></div>
+      <div class="facts"><div>Kapasite<b>${fmt(v.max_capacity_kg, 0)} kg</b></div><div>Tüketim<b>${fmt(v.fuel_l_per_100km)} L/100</b></div><div>Plaka<b>${v.plate_number}</b></div></div></div>`;
+    const left = r.stops.filter(s => !s.is_collected);
+    const eta = left.length ? Math.max(0, left[0].eta_minutes - (r.stops.find(s => s.is_collected) ? r.stops.filter(s => s.is_collected).slice(-1)[0].eta_minutes : 0)) : 0;
+    const barColor = r.status === "delayed" ? css("--critical") : color;
+    return `<div class="veh"><div class="row"><span class="sw" style="background:${color}"></span><span class="code">${v.code}</span>
+      <span class="drv">${v.driver_name}</span><span class="pill ${r.status}">${r.status === "delayed" ? "⚠ " : ""}${STATUS_TR[r.status]}</span></div>
+      <div class="row" style="font-size:12px;color:var(--text-2)">Rota ilerlemesi<span style="margin-left:auto;font-weight:700;color:var(--text)">%${fmt(r.progress_pct, 0)}</span></div>
+      <div class="bar"><div style="width:${r.progress_pct}%;background:${barColor}"></div></div>
+      <div class="facts"><div>Sıradaki<b>${r.next_stop || "Depoya dönüş"}</b></div><div>ETA<b>${left.length ? Math.round(eta) + " dk" : "—"}</b></div><div>Yük<b>${fmt(r.load_kg, 0)} / ${fmt(r.capacity_kg, 0)} kg</b></div></div></div>`;
+  }).join("");
+}
+
+// ------------------------------------------------------------------ öneriler
+function renderInsights(list) {
+  const box = document.getElementById("insights");
+  box.innerHTML = list.map((x, i) => `<div class="ins ${x.severity}">
+    <div class="t"><span class="sev ${x.severity}">${x.severity === "info" ? "i" : "!"}</span>${x.title}</div>
+    <div class="d">${x.detail}</div>
+    ${x.action ? `<button data-i="${i}">${x.action_label}</button>` : ""}</div>`).join("");
+  box.querySelectorAll("button[data-i]").forEach(btn => btn.onclick = async () => {
+    const x = list[+btn.dataset.i];
+    btn.disabled = true;
+    try {
+      if (x.action === "/api/routes/optimize") await runOptimize();
+      else { await api(x.action, { method: "POST", body: JSON.stringify(x.payload || {}) }); toast("Aksiyon uygulandı: " + x.action_label); }
+      await refresh();
+    } catch (e) { toast("Hata: " + e.message); btn.disabled = false; }
+  });
+}
+
+// ------------------------------------------------------------------ grafikler
+Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+Chart.defaults.color = css("--text-2");
+const gridColor = "#ecebe6";
+const trendChart = new Chart(document.getElementById("trendChart"), {
+  type: "line",
+  data: { labels: [], datasets: [
+    { label: "Statik çizelge", data: [], borderColor: css("--s2"), backgroundColor: css("--s2"), borderWidth: 2, pointRadius: 3, pointHoverRadius: 5, tension: .3 },
+    { label: "Optimize rota", data: [], borderColor: css("--s1"), backgroundColor: css("--s1"), borderWidth: 2, pointRadius: 3, pointHoverRadius: 5, tension: .3 },
+  ] },
+  options: {
+    maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+    plugins: { legend: { position: "top", align: "start", labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true } },
+      tooltip: { callbacks: { label: c => `${c.dataset.label}: ${fmt(c.parsed.y)} km`,
+        afterBody: items => { const [b, o] = [items[0]?.parsed.y, items[1]?.parsed.y]; return b ? `Tasarruf: %${fmt(100 * (b - o) / b)}` : ""; } } } },
+    scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: gridColor }, border: { display: false } } },
+  },
+});
+const zoneChart = new Chart(document.getElementById("zoneChart"), {
+  type: "bar",
+  data: { labels: [], datasets: [{ label: "Ort. doluluk", data: [], backgroundColor: css("--s1"), borderRadius: 4, barThickness: 14 }] },
+  options: {
+    indexAxis: "y", maintainAspectRatio: false,
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `Ort. doluluk: %${fmt(c.parsed.x)} · ${zoneChart._meta?.[c.dataIndex] || ""}` } } },
+    scales: { x: { min: 0, max: 100, grid: { color: gridColor }, border: { display: false }, ticks: { callback: v => "%" + v } }, y: { grid: { display: false } } },
+  },
+});
+function renderTrend(points) {
+  trendChart.data.labels = points.map(p => new Date(p.date + "T00:00").toLocaleDateString("tr-TR", { weekday: "short", day: "numeric" }));
+  trendChart.data.datasets[0].data = points.map(p => p.baseline_km);
+  trendChart.data.datasets[1].data = points.map(p => p.optimized_km);
+  trendChart.update();
+}
+function renderZones(z) {
+  zoneChart.data.labels = z.map(x => x.zone_name);
+  zoneChart.data.datasets[0].data = z.map(x => x.avg_fill_rate);
+  zoneChart._meta = z.map(x => `${x.bins} konteyner, ${x.critical} acil`);
+  zoneChart.update();
+}
+
+// ------------------------------------------------------------------ optimizasyon
+function renderOptSummary(res) {
+  const s = res.summary;
+  document.getElementById("optMeta").textContent = new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+  const pct = s.baseline_distance_km ? 100 * s.optimized_distance_km / s.baseline_distance_km : 0;
+  document.getElementById("optSummary").innerHTML = `
+    <div class="opt-sum">
+      <div><span>Seçilen / toplam</span><b>${s.selected_bins} / ${s.total_bins}</b></div>
+      <div><span>Kullanılan araç</span><b>${s.vehicles_used}</b></div>
+      <div><span>Mesafe tasarrufu</span><b>${fmt(s.distance_saved_km)} km</b></div>
+      <div><span>Yakıt tasarrufu</span><b>${fmt(s.fuel_saved_l)} L</b></div>
+      <div><span>CO₂ azaltımı</span><b>${fmt(s.co2_reduced_kg)} kg</b></div>
+      <div><span>Yakıt maliyeti</span><b>₺${fmt(s.fuel_cost_saved_try, 0)}</b></div>
+    </div>
+    <div class="compare">
+      <div>Statik çizelge · <b style="color:var(--text)">${fmt(s.baseline_distance_km)} km</b></div>
+      <div class="bar"><div style="width:100%;background:${css("--s2")}"></div></div>
+      <div>Optimize rota · <b style="color:var(--text)">${fmt(s.optimized_distance_km)} km</b> (−%${fmt(s.distance_saved_pct)})</div>
+      <div class="bar"><div style="width:${pct}%;background:${css("--s1")}"></div></div>
+      ${s.unassigned_bins.length ? `<div style="color:var(--critical)">Kapasite yetmedi: ${s.unassigned_bins.join(", ")}</div>` : ""}
+    </div>`;
+}
+async function runOptimize() {
+  const res = await api("/api/routes/optimize", { method: "POST", body: JSON.stringify({ threshold, balance: true, persist: true }) });
+  renderOptSummary(res);
+  toast(`${res.summary.vehicles_used} rota oluşturuldu · ${fmt(res.summary.distance_saved_km)} km / ${fmt(res.summary.fuel_saved_l)} L tasarruf`);
+  return res;
+}
+
+// ------------------------------------------------------------------ yenileme
+async function refresh() {
+  try {
+    const q = `?threshold=${threshold}`;
+    const [kpis, bins, vehicles, routes, insights, trend, zones] = await Promise.all([
+      api("/api/analytics/kpis" + q), api("/api/bins"), api("/api/vehicles"), api("/api/routes"),
+      api("/api/analytics/insights" + q), api("/api/analytics/trend?days=7"), api("/api/analytics/zones" + q),
+    ]);
+    if (!depot) { depot = await api("/api/depot"); drawDepot(); }
+    bins.forEach(b => b.needs_collection = b.fill_rate >= threshold || b.is_critical);
+    colorFor(vehicles);
+    renderKpis(kpis);
+    drawMap(bins, routes, vehicles);
+    renderVehicles(vehicles, routes);
+    renderInsights(insights);
+    renderTrend(trend);
+    renderZones(zones);
+    document.getElementById("subtitle").textContent =
+      `Kadıköy pilot bölgesi · son güncelleme ${new Date().toLocaleTimeString("tr-TR")}`;
+    banner("");
+  } catch (e) {
+    banner(`API'ye bağlanılamadı (${e.message}). Backend'i proje klasöründe <code>uvicorn app.main:app --reload</code> ile başlatıp panoyu <code>http://127.0.0.1:8000/</code> adresinden açın.`);
+  }
+}
+
+// ------------------------------------------------------------------ olaylar
+const thr = document.getElementById("thr");
+thr.oninput = () => { threshold = +thr.value; document.getElementById("thrOut").textContent = "%" + threshold; };
+thr.onchange = refresh;
+
+document.getElementById("btnOpt").onclick = async e => {
+  e.target.disabled = true;
+  try { await runOptimize(); await refresh(); } catch (err) { toast(err.message); }
+  e.target.disabled = false;
+};
+document.getElementById("btnReset").onclick = async () => {
+  if (simTimer) document.getElementById("btnSim").click();
+  try {
+    await api("/api/seed/reset", { method: "POST" });
+    Object.values(vehicleMarkers).forEach(m => layers.vehicles.removeLayer(m)); vehicleMarkers = {};
+    document.getElementById("optSummary").innerHTML = '<div class="empty">Veri sıfırlandı. “Rotaları Optimize Et” ile yeni plan oluşturun.</div>';
+    document.getElementById("optMeta").textContent = "—";
+    toast("Örnek veri yeniden yüklendi"); await refresh();
+  } catch (e) { toast(e.message); }
+};
+document.getElementById("btnSim").onclick = e => {
+  const btn = e.currentTarget, on = btn.getAttribute("aria-pressed") !== "true";
+  btn.setAttribute("aria-pressed", on);
+  clearInterval(simTimer); simTimer = null;
+  if (on) simTimer = setInterval(async () => {
+    if (busy) return; busy = true;
+    try {
+      const t = await api("/api/simulate/tick", { method: "POST" });
+      if (t.delayed_routes.length) toast(`Trafik gecikmesi: rota #${t.delayed_routes.join(", #")}`);
+      if (t.new_critical.length) toast(`Yeni sensör alarmı: ${t.new_critical.join(", ")}`);
+      await refresh();
+    } catch (err) { toast(err.message); }
+    busy = false;
+  }, 3000);
+};
+
+refresh();
+</script>
+</body>
+</html>
